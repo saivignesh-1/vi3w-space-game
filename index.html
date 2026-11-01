@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vi3W 3D Space Runner</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #050510;
+      font-family: Arial, sans-serif;
+    }
+    #ui {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: #ffffff;
+      font-size: 24px;
+      font-weight: bold;
+      text-shadow: 0 0 8px rgba(0,255,255,0.8);
+      z-index: 10;
+    }
+    #instructions {
+      position: absolute;
+      bottom: 20px;
+      width: 100%;
+      text-align: center;
+      color: #aaaaaa;
+      font-size: 16px;
+      z-index: 10;
+    }
+    #game-over {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #ff3366;
+      font-size: 48px;
+      font-weight: bold;
+      text-align: center;
+      z-index: 20;
+    }
+  </style>
+  <!-- Three.js & GLTFLoader -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+
+  <div id="ui">Score: <span id="score">0</span></div>
+  <div id="instructions">Use LEFT / RIGHT arrows or A / D keys to control your Vi3W ship</div>
+  <div id="game-over">GAME OVER<br><span style="font-size: 20px; color: #fff;">Press SPACE to Restart</span></div>
+
+  <script>
+    let scene, camera, renderer, playerModel;
+    let score = 0;
+    let gameOver = false;
+    const obstacles = [];
+    const keys = {};
+
+    function init() {
+      // 1. Scene Setup
+      scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x050510, 0.02);
+
+      // 2. Camera Setup
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 4, 10);
+      camera.lookAt(0, 0, 0);
+
+      // 3. Renderer Setup
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      document.body.appendChild(renderer.domElement);
+
+      // 4. Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+      dirLight.position.set(5, 10, 7);
+      scene.add(dirLight);
+
+      // 5. Starfield Background
+      const starGeo = new THREE.BufferGeometry();
+      const starCount = 1000;
+      const starPositions = new Float32Array(starCount * 3);
+      for(let i = 0; i < starCount * 3; i++) {
+        starPositions[i] = (Math.random() - 0.5) * 200;
+      }
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+      const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 });
+      const stars = new THREE.Points(starGeo, starMat);
+      scene.add(stars);
+
+      // 6. Attach GLB Model Generated via Vi3W
+      const loader = new THREE.GLTFLoader();
+      loader.load('./output.glb', (gltf) => {
+        playerModel = gltf.scene;
+        playerModel.scale.set(1.5, 1.5, 1.5); // Adjust scale if needed
+        playerModel.position.set(0, 0, 0);
+        scene.add(playerModel);
+      }, undefined, (error) => {
+        console.error('Error loading Vi3W GLB model:', error);
+      });
+
+      // Controls setup
+      window.addEventListener('keydown', e => {
+        keys[e.key] = true;
+        if (gameOver && e.code === 'Space') restartGame();
+      });
+      window.addEventListener('keyup', e => keys[e.key] = false);
+      window.addEventListener('resize', onWindowResize);
+
+      animate();
+    }
+
+    function spawnObstacle() {
+      if (Math.random() > 0.08 || gameOver) return;
+      const geo = new THREE.DodecahedronGeometry(0.8, 1);
+      const mat = new THREE.MeshStandardMaterial({ color: 0xff3366, roughness: 0.4 });
+      const mesh = new THREE.Mesh(geo, mat);
+      
+      mesh.position.x = (Math.random() - 0.5) * 12;
+      mesh.position.y = 0;
+      mesh.position.z = -40;
+      scene.add(mesh);
+      obstacles.push(mesh);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      if (!gameOver) {
+        // Player Control Movement
+        if (playerModel) {
+          if ((keys['ArrowLeft'] || keys['a'] || keys['A']) && playerModel.position.x > -6) {
+            playerModel.position.x -= 0.2;
+            playerModel.rotation.z = 0.2;
+          } else if ((keys['ArrowRight'] || keys['d'] || keys['D']) && playerModel.position.x < 6) {
+            playerModel.position.x += 0.2;
+            playerModel.rotation.z = -0.2;
+          } else {
+            playerModel.rotation.z = 0;
+          }
+        }
+
+        // Spawn & Update Obstacles
+        spawnObstacle();
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          const obs = obstacles[i];
+          obs.position.z += 0.35;
+          obs.rotation.x += 0.02;
+          obs.rotation.y += 0.02;
+
+          // Check Collision with Player Model
+          if (playerModel && obs.position.distanceTo(playerModel.position) < 1.4) {
+            gameOver = true;
+            document.getElementById('game-over').style.display = 'block';
+          }
+
+          // Remove past obstacles & add score
+          if (obs.position.z > 10) {
+            scene.remove(obs);
+            obstacles.splice(i, 1);
+            score += 10;
+            document.getElementById('score').innerText = score;
+          }
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    function restartGame() {
+      score = 0;
+      gameOver = false;
+      document.getElementById('score').innerText = score;
+      document.getElementById('game-over').style.display = 'none';
+      obstacles.forEach(obs => scene.remove(obs));
+      obstacles.length = 0;
+      if (playerModel) playerModel.position.set(0, 0, 0);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    init();
+  </script>
+</body>
+</html>
